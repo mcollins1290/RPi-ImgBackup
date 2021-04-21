@@ -21,7 +21,7 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 # Check if required apps are installed
-apps=( "awk" "column" "cp" "dd" "df" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" )
+apps=( "awk" "column" "cp" "dd" "df" "fdisk" "gawk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" )
 for i in "${apps[@]}"
 do
 	if ! [ -x "$(command -v $i)" ]; then
