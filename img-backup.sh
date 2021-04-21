@@ -12,7 +12,7 @@ BACKUP_DIRECTORY=$NFS_MOUNT_POINT/Backups/imgs/$HOSTNAME/
 IMAGE_FILENAME=$HOSTNAME"_"$(date +%Y-%m-%d_%H-%M-%S)".img"
 BACKUP_FILENAME=$IMAGE_FILENAME".zip"
 DEST_ROOT_BUFFER=15 # as a %
-################################# #######################
+#########################################################
 
 # Check to see if script is being run as root
 if [ $(id -u) -ne 0 ]; then
