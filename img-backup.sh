@@ -21,7 +21,7 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 # Check if required apps are installed
-apps=( "awk" "column" "cp" "dd" "df" "fdisk" "gawk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" )
+apps=( "awk" "column" "cp" "dd" "df" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" )
 for i in "${apps[@]}"
 do
 	if ! [ -x "$(command -v $i)" ]; then
@@ -222,18 +222,9 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source ROOT files to ROOT Partition in RAW Image file."
 	exit 1
 fi
-# Stage 4: Append init_resize.sh script to end of cmdline.txt (if file exists) on BOOT Partition
-if [ -f $DEST_BOOT_DIR/cmdline.txt ]; then
-	echo "Stage 4: Append init_resize.sh script to end of cmdline.txt on BOOT Partition"
-	awk -i inplace 'NR==1{printf "%s %s\n", $0, "init=/usr/lib/raspi-config/init_resize.sh"}' $DEST_BOOT_DIR/cmdline.txt
-	if [ $? -ne 0 ]; then
-		echo "WARNING: Failed to append 'init_resize.sh' to end of cmdline.txt on BOOT Partition."
-	fi
-else
-	echo "Stage 4: <<< SKIPPING >>> Append init_resize.sh script to end of cmdline.txt on BOOT Partition <<< SKIPPING >>>"
-fi
-# Stage 5: Cleanup and create .ZIP file
-echo "Stage 5: Cleanup and create .ZIP file"
+
+# Stage 4: Cleanup and create .ZIP file
+echo "Stage 4: Cleanup and create .ZIP file"
 # Unmount BOOT Directory
 umount $DEST_BOOT_DIR
 if [ $? -ne 0 ]; then
