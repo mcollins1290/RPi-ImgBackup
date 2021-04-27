@@ -10,6 +10,6 @@ else
 fi
 
 # Send results via Email
-mail -s "$result: Backup Results for $(hostname)" mcollins1290@gmail.com < ./Log/log
+mail -s "$result - Backup Results for $(hostname)" mcollins1290@gmail.com < ./Log/log
 
 exit
