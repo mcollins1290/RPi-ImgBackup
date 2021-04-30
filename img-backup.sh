@@ -273,7 +273,7 @@ printf "Backup Details: $BACKUP_DETAILS\n\n"
 BACKUPS_TO_DELETE=$(find $BACKUP_DIRECTORY -type 'f' | grep -v "$BACKUP_FILENAME")
 
 if [ -n "$BACKUPS_TO_DELETE" ]; then
-	printf "Deleting the following previous backups:\n$BACKUPS_TO_DELETE\n\n"
+	printf "Deleted the following previous backups:\n$BACKUPS_TO_DELETE\n\n"
 	rm -f $BACKUPS_TO_DELETE
 else
 	printf "There are no previous backups to delete.\n\n"
