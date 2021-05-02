@@ -244,7 +244,7 @@ if [ $? -ne 0 ]; then
 	exit 1
 fi
 # Create ZIP file of RAW Image file
-zip $BACKUP_DIRECTORY$BACKUP_FILENAME $IMAGE_FILE >& /dev/null
+zip -j $BACKUP_DIRECTORY$BACKUP_FILENAME $IMAGE_FILE >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to create ZIP file of RAW Image file."
 	exit 1
