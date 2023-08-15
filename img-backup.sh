@@ -12,6 +12,9 @@ BACKUP_DIRECTORY=$NFS_MOUNT_POINT/Backups/imgs/$HOSTNAME/
 IMAGE_FILENAME=$HOSTNAME"_"$(date +%Y-%m-%d_%H-%M-%S)".img"
 BACKUP_FILENAME=$IMAGE_FILENAME".zip"
 DEST_ROOT_BUFFER=15 # as a %
+DEST_ROOT_SET_MAX_MOUNT_COUNT=True # True or False
+DEST_ROOT_MAX_MOUNT_COUNT_VALUE=1
+DBG_STEP_TIMINGS=False
 #########################################################
 
 # Check to see if script is being run as root
@@ -21,7 +24,7 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 # Check if required apps are installed
-apps=( "awk" "column" "cp" "dd" "df" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" )
+apps=( "awk" "column" "cp" "dd" "df" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" "tune2fs" )
 for i in "${apps[@]}"
 do
 	if ! [ -x "$(command -v $i)" ]; then
@@ -104,6 +107,14 @@ dt=$(date -d @$s_timestamp '+%m/%d/%Y %H:%M:%S');
 printf "IMAGE BACKUP PROCESS STARTED ON $dt\n"
 #
 
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Started message
+	stepstart_timestamp=$(date +'%s')
+	dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP STARTED ON $dt\n"
+	#
+fi
+
 # Stage 1: Create initial RAW image
 echo "Stage 1: Create initial RAW Image file"
 IMAGE_FILE=$WORK_DIR$IMAGE_FILENAME
@@ -113,6 +124,29 @@ if [ ! -f $IMAGE_FILE ]; then
 	exit 1
 fi
 #
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Finished message
+	stepfinish_timestamp=$(date +'%s')
+	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP FINISHED ON $dt\n"
+	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+	h=$(( dur / 3600 ))
+	m=$(( ( dur / 60 ) % 60 ))
+	s=$(( dur % 60 ))
+
+	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	#
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Started message
+	stepstart_timestamp=$(date +'%s')
+	dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP STARTED ON $dt\n"
+	#
+fi
 
 # Stage 2: Create and format Partitions in RAW image
 echo "Stage 2: Create and format Partitions in RAW Image file"
@@ -180,6 +214,40 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to format the ROOT Partition in the RAW Image file."
 	exit 1
 fi
+# Set Max Mount Count on ROOT Partition
+if [ "$DEST_ROOT_SET_MAX_MOUNT_COUNT" = True ] ; then
+	echo "Stage 2a: Set ROOT Max Mount Count to $DEST_ROOT_MAX_MOUNT_COUNT_VALUE."
+	tune2fs -c "$DEST_ROOT_MAX_MOUNT_COUNT_VALUE" "$LOOP_DEV"p2 >& /dev/null
+
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Failed to set ROOT Max Mount Count."
+		exit 1
+	fi
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Finished message
+	stepfinish_timestamp=$(date +'%s')
+	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP FINISHED ON $dt\n"
+	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+	h=$(( dur / 3600 ))
+	m=$(( ( dur / 60 ) % 60 ))
+	s=$(( dur % 60 ))
+
+	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	#
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Started message
+	stepstart_timestamp=$(date +'%s')
+	dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP STARTED ON $dt\n"
+	#
+fi
+
 # Stage 3a & 3b: Copy Source files to Partitions in RAW image
 # Create BOOT and ROOT Directory in Work Directory and mount them
 DEST_BOOT_DIR=$WORK_DIR/BOOT
@@ -208,6 +276,30 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to mount temporary ROOT Directory."
 	exit 1
 fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Finished message
+	stepfinish_timestamp=$(date +'%s')
+	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP FINISHED ON $dt\n"
+	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+	h=$(( dur / 3600 ))
+	m=$(( ( dur / 60 ) % 60 ))
+	s=$(( dur % 60 ))
+
+	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	#
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Started message
+	stepstart_timestamp=$(date +'%s')
+	dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP STARTED ON $dt\n"
+	#
+fi
+
 # Populate BOOT Partition from Source
 echo "Stage 3a: Copy Source BOOT files to BOOT Partition in RAW Image file"
 cp --recursive $SOURCE_BOOT_MOUNTPOINT/. $DEST_BOOT_DIR/ >& /dev/null
@@ -215,12 +307,59 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source BOOT files to BOOT Partition in RAW Image file."
 	exit 1
 fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Finished message
+	stepfinish_timestamp=$(date +'%s')
+	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP FINISHED ON $dt\n"
+	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+	h=$(( dur / 3600 ))
+	m=$(( ( dur / 60 ) % 60 ))
+	s=$(( dur % 60 ))
+
+	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	#
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Started message
+	stepstart_timestamp=$(date +'%s')
+	dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP STARTED ON $dt\n"
+	#
+fi
+
 # Populate ROOT Partition from Source
 echo "Stage 3b: Copy Source ROOT files to ROOT Partition in RAW Image file"
 rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} $SOURCE_ROOT_MOUNTPOINT $DEST_ROOT_DIR/ >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source ROOT files to ROOT Partition in RAW Image file."
 	exit 1
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Finished message
+	stepfinish_timestamp=$(date +'%s')
+	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP FINISHED ON $dt\n"
+	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+	h=$(( dur / 3600 ))
+	m=$(( ( dur / 60 ) % 60 ))
+	s=$(( dur % 60 ))
+
+	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	#
+fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Started message
+	stepstart_timestamp=$(date +'%s')
+	dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP STARTED ON $dt\n"
+	#
 fi
 
 # Stage 4: Cleanup and create .ZIP file
@@ -255,6 +394,22 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to delete temporary Work Directory - [$WORK_DIR]."
 	exit 1
 fi
+
+if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	# Output Step Finished message
+	stepfinish_timestamp=$(date +'%s')
+	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+	printf "STEP FINISHED ON $dt\n"
+	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+	h=$(( dur / 3600 ))
+	m=$(( ( dur / 60 ) % 60 ))
+	s=$(( dur % 60 ))
+
+	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	#
+fi
+
 # Output Image Backup Finished message
 f_timestamp=$(date +'%s')
 dt=$(date -d @$f_timestamp '+%m/%d/%Y %H:%M:%S');
