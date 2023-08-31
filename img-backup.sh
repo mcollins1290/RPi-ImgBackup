@@ -333,7 +333,7 @@ fi
 
 # Populate ROOT Partition from Source
 echo "Stage 3b: Copy Source ROOT files to ROOT Partition in RAW Image file"
-rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} $SOURCE_ROOT_MOUNTPOINT $DEST_ROOT_DIR/ >& /dev/null
+rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/var/swap","/var/tmp/*"} $SOURCE_ROOT_MOUNTPOINT $DEST_ROOT_DIR/ >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source ROOT files to ROOT Partition in RAW Image file."
 	exit 1
