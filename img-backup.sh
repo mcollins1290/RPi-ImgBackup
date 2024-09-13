@@ -1,19 +1,18 @@
 #!/bin/bash
 set -B
 
-### THIS SCRIPT IS ONLY FOR DEVICES WHICH REQUIRE NFS SHARE TO ACCESS BACKUP LOCATION ###
-
 ####################### VARIABLES #######################
 PARTITION_TABLE_FILE="/dev/mmcblk0"
 BOOT_PARTITION_FILE="/dev/mmcblk0p1"
 ROOT_PARTITION_FILE="/dev/mmcblk0p2"
-NFS_MOUNT_POINT=/media/raid1
-BACKUP_DIRECTORY=$NFS_MOUNT_POINT/Backups/imgs/$HOSTNAME/
+TMP_DIRECTORY=/tmp/RPi-ImgBackup # No need to include / on the end
+BACKUP_DIRECTORY=/media/raid1/Backups/imgs/octopi.totten # No need to include / on the end
 IMAGE_FILENAME=$HOSTNAME"_"$(date +%Y-%m-%d_%H-%M-%S)".img"
-BACKUP_FILENAME=$IMAGE_FILENAME".zip"
-DEST_ROOT_BUFFER=15 # as a %
+ZIP_FILENAME=$IMAGE_FILENAME".zip"
+DEST_ROOT_BUFFER=50 # as a %
 DEST_ROOT_SET_MAX_MOUNT_COUNT=True # True or False
 DEST_ROOT_MAX_MOUNT_COUNT_VALUE=1
+ZIP_IMG_FILE=False
 DBG_STEP_TIMINGS=False
 #########################################################
 
@@ -49,25 +48,19 @@ if [ ! -e $ROOT_PARTITION_FILE ]; then
 fi
 #
 
-# Check whether Backup directory exists
-if [ ! -d $BACKUP_DIRECTORY ]; then
-	# Possible stale file handle, try unmounting and mounting to fix issue
-	umount $NFS_MOUNT_POINT
-	mount -a
-fi
-
-if [ ! -d $BACKUP_DIRECTORY ]; then
-	echo "ERROR: Backup Directory [$BACKUP_DIRECTORY] does not exist."
-	exit 1
+# Check whether TMP directory exists and if not, create it
+if [ ! -d $TMP_DIRECTORY ]; then
+        mkdir -p $TMP_DIRECTORY
+        if [ ! -d $TMP_DIRECTORY ]; then
+                echo "ERROR: Unable to create Temp Directory - [$TMP_DIRECTORY]"
+                exit 1
+        fi
 fi
 #
 
-# Create Work Directory (tmp-pid# folder in Backup Directory)
-WORK_DIR=$BACKUP_DIRECTORY/tmp-$$/
-mkdir $WORK_DIR
-
-if [ ! -d $WORK_DIR ]; then
-	echo "ERROR: Failed to create temporary Work Directory - [$WORK_DIR]."
+# Check whether Backup directory exists
+if [ ! -d $BACKUP_DIRECTORY ]; then
+	echo "ERROR: Backup Directory [$BACKUP_DIRECTORY] does not exist."
 	exit 1
 fi
 #
@@ -117,8 +110,8 @@ fi
 
 # Stage 1: Create initial RAW image
 echo "Stage 1: Create initial RAW Image file"
-IMAGE_FILE=$WORK_DIR$IMAGE_FILENAME
-dd if=/dev/zero of=$IMAGE_FILE bs=1M seek=$DEST_IMAGE_SIZE count=0 >& /dev/null
+IMAGE_FILE=$BACKUP_DIRECTORY/$IMAGE_FILENAME
+truncate -s $DEST_IMAGE_SIZE"M" $IMAGE_FILE >& /dev/null
 if [ ! -f $IMAGE_FILE ]; then
 	echo "ERROR: Failed to create RAW Image file - [$IMAGE_FILE]."
 	exit 1
@@ -203,13 +196,13 @@ if [ $? -ne 0 ]; then
 	exit 1
 fi
 # Format BOOT Partition
-mkfs.vfat -n "$SOURCE_BOOT_LABEL" "$LOOP_DEV"p1 >& /dev/null
+mkfs.vfat -F 32 -n "$SOURCE_BOOT_LABEL" -s 4 "$LOOP_DEV"p1 >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to format the BOOT Partition in the RAW Image file."
 	exit 1
 fi
 # Format ROOT Partition
-mkfs.ext4 -L "$SOURCE_ROOT_LABEL" "$LOOP_DEV"p2 >& /dev/null
+mkfs.ext4 -b 4096 -L "$SOURCE_ROOT_LABEL" -q  "$LOOP_DEV"p2 >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to format the ROOT Partition in the RAW Image file."
 	exit 1
@@ -249,31 +242,28 @@ if [ "$DBG_STEP_TIMINGS" = True ] ; then
 fi
 
 # Stage 3a & 3b: Copy Source files to Partitions in RAW image
-# Create BOOT and ROOT Directory in Work Directory and mount them
-DEST_BOOT_DIR=$WORK_DIR/BOOT
-DEST_ROOT_DIR=$WORK_DIR/ROOT
-# Create BOOT Directory
-mkdir $DEST_BOOT_DIR
-if [ ! -d $DEST_BOOT_DIR ]; then
-	echo "ERROR: Failed to create temporary BOOT Directory in Work Directory - [$DEST_BOOT_DIR]."
-	exit 1
-fi
-# Create ROOT Directory
-mkdir $DEST_ROOT_DIR
-if [ ! -d $DEST_ROOT_DIR ]; then
-	echo "ERROR: Failed to create temporary ROOT Directory in Work Directory - [$DEST_ROOT_DIR]."
-	exit 1
-fi
-# Mount BOOT Directory
-mount -o loop "$LOOP_DEV"p1 $DEST_BOOT_DIR >& /dev/null
-if [ $? -ne 0 ]; then
-	echo "ERROR: Failed to mount temporary BOOT Directory."
-	exit 1
-fi
+# Estlabish BOOT and ROOT Directory in Work Directory and mount them
+DEST_BOOT_DIR="$TMP_DIRECTORY/boot"
+DEST_ROOT_DIR="$TMP_DIRECTORY/"
+
 # Mount ROOT Directory
-mount -o loop "$LOOP_DEV"p2 $DEST_ROOT_DIR >& /dev/null
+mount "$LOOP_DEV"p2 $DEST_ROOT_DIR >& /dev/null
 if [ $? -ne 0 ]; then
-	echo "ERROR: Failed to mount temporary ROOT Directory."
+        echo "ERROR: Failed to mount ROOT Directory in Image file."
+        exit 1
+fi
+
+# Create BOOT Directory
+mkdir $DEST_BOOT_DIR >& /dev/null
+if [ ! -d $DEST_BOOT_DIR ]; then
+        echo "ERROR: Failed to create BOOT Directory in Image file - [$DEST_BOOT_DIR]."
+        exit 1
+fi
+
+# Mount BOOT Directory
+mount "$LOOP_DEV"p1 $DEST_BOOT_DIR >& /dev/null
+if [ $? -ne 0 ]; then
+	echo "ERROR: Failed to mount BOOT Directory in Image file."
 	exit 1
 fi
 
@@ -302,7 +292,7 @@ fi
 
 # Populate BOOT Partition from Source
 echo "Stage 3a: Copy Source BOOT files to BOOT Partition in RAW Image file"
-cp --recursive $SOURCE_BOOT_MOUNTPOINT/. $DEST_BOOT_DIR/ >& /dev/null
+cp --recursive $SOURCE_BOOT_MOUNTPOINT/. $DEST_BOOT_DIR >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source BOOT files to BOOT Partition in RAW Image file."
 	exit 1
@@ -333,7 +323,7 @@ fi
 
 # Populate ROOT Partition from Source
 echo "Stage 3b: Copy Source ROOT files to ROOT Partition in RAW Image file"
-rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/var/swap","/var/tmp/*"} $SOURCE_ROOT_MOUNTPOINT $DEST_ROOT_DIR/ >& /dev/null
+rsync -aAX --exclude={"/boot/*","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/var/swap","/var/tmp/*"} $SOURCE_ROOT_MOUNTPOINT $DEST_ROOT_DIR >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source ROOT files to ROOT Partition in RAW Image file."
 	exit 1
@@ -362,8 +352,8 @@ if [ "$DBG_STEP_TIMINGS" = True ] ; then
 	#
 fi
 
-# Stage 4: Cleanup and create .ZIP file
-echo "Stage 4: Cleanup and create .ZIP file"
+# Stage 4: Unmount BOOT & ROOT Directories and delete LOOP device
+echo "Stage 4: Cleanup following creation of .IMG file"
 # Unmount BOOT Directory
 umount $DEST_BOOT_DIR
 if [ $? -ne 0 ]; then
@@ -382,32 +372,60 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to delete Loop device using RAW Image file."
 	exit 1
 fi
-# Create ZIP file of RAW Image file
-zip -j $BACKUP_DIRECTORY$BACKUP_FILENAME $IMAGE_FILE >& /dev/null
-if [ $? -ne 0 ]; then
-	echo "ERROR: Failed to create ZIP file of RAW Image file."
-	exit 1
-fi
-# Delete Work Directory
-rm -rf $WORK_DIR
-if [ $? -ne 0 ]; then
-	echo "ERROR: Failed to delete temporary Work Directory - [$WORK_DIR]."
-	exit 1
-fi
+#
 
 if [ "$DBG_STEP_TIMINGS" = True ] ; then
-	# Output Step Finished message
-	stepfinish_timestamp=$(date +'%s')
-	dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
-	printf "STEP FINISHED ON $dt\n"
-	dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+        # Output Step Finished message
+        stepfinish_timestamp=$(date +'%s')
+        dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+        printf "STEP FINISHED ON $dt\n"
+        dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
 
-	h=$(( dur / 3600 ))
-	m=$(( ( dur / 60 ) % 60 ))
-	s=$(( dur % 60 ))
+        h=$(( dur / 3600 ))
+        m=$(( ( dur / 60 ) % 60 ))
+        s=$(( dur % 60 ))
 
-	printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
-	#
+        printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+        #
+fi
+
+if [ "$ZIP_IMG_FILE" = True ] ; then
+        if [ "$DBG_STEP_TIMINGS" = True ] ; then
+                # Output Step Started message
+                stepstart_timestamp=$(date +'%s')
+                dt=$(date -d @$stepstart_timestamp '+%m/%d/%Y %H:%M:%S');
+                printf "STEP STARTED ON $dt\n"
+                #
+        fi
+
+        # Stage 5: Create ZIP of .IMG file
+        echo "Stage 5: Create ZIP of .IMG file"
+
+        # Create ZIP file of RAW Image file
+        zip -j $BACKUP_DIRECTORY/$ZIP_FILENAME $IMAGE_FILE >& /dev/null
+        if [ $? -ne 0 ]; then
+	        echo "ERROR: Failed to create ZIP file of RAW Image file."
+	        exit 1
+        fi
+
+        BACKUP_FILENAME=$ZIP_FILENAME
+
+        if [ "$DBG_STEP_TIMINGS" = True ] ; then
+	        # Output Step Finished message
+                stepfinish_timestamp=$(date +'%s')
+                dt=$(date -d @$stepfinish_timestamp '+%m/%d/%Y %H:%M:%S');
+                printf "STEP FINISHED ON $dt\n"
+                dur="$(($stepfinish_timestamp-$stepstart_timestamp))"
+
+                h=$(( dur / 3600 ))
+                m=$(( ( dur / 60 ) % 60 ))
+                s=$(( dur % 60 ))
+
+                printf "Step Duration: %02d:%02d:%02d\n\n" $h $m $s
+	        #
+        fi
+else
+        BACKUP_FILENAME=$IMAGE_FILENAME
 fi
 
 # Output Image Backup Finished message
@@ -421,11 +439,11 @@ m=$(( ( dur / 60 ) % 60 ))
 s=$(( dur % 60 ))
 
 printf "Duration: %02d:%02d:%02d\n\n" $h $m $s
-# Output Image Backup .ZIP file details
-BACKUP_DETAILS=$(ls -sh $BACKUP_DIRECTORY$BACKUP_FILENAME)
+# Output Backup details
+BACKUP_DETAILS=$(ls -sh $BACKUP_DIRECTORY/$BACKUP_FILENAME)
 printf "Backup Details: $BACKUP_DETAILS\n\n"
 # Delete Prior Backups in Backup Directory (if any exist)
-BACKUPS_TO_DELETE=$(find $BACKUP_DIRECTORY -type 'f' | grep -v "$BACKUP_FILENAME")
+BACKUPS_TO_DELETE=$(find $BACKUP_DIRECTORY/ -type 'f' | grep -v "$BACKUP_FILENAME")
 
 if [ -n "$BACKUPS_TO_DELETE" ]; then
 	printf "Deleted the following previous backups:\n$BACKUPS_TO_DELETE\n\n"
