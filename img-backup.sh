@@ -9,7 +9,7 @@ TMP_DIRECTORY=/tmp/RPi-ImgBackup # No need to include / on the end
 BACKUP_DIRECTORY=/media/raid1/Backups/imgs/octopi.totten # No need to include / on the end
 IMAGE_FILENAME=$HOSTNAME"_"$(date +%Y-%m-%d_%H-%M-%S)".img"
 ZIP_FILENAME=$IMAGE_FILENAME".zip"
-DEST_ROOT_BUFFER=50 # as a %
+DEST_ROOT_BUFFER=40 # as a %
 DEST_ROOT_SET_MAX_MOUNT_COUNT=True # True or False
 DEST_ROOT_MAX_MOUNT_COUNT_VALUE=1
 ZIP_IMG_FILE=False
@@ -23,11 +23,11 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 # Check if required apps are installed
-apps=( "awk" "column" "cp" "dd" "df" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "tail" "zip" "tune2fs" )
+apps=( "awk" "column" "cp" "df" "du" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "sync" "tail" "truncate" "zip" "tune2fs" )
 for i in "${apps[@]}"
 do
 	if ! [ -x "$(command -v $i)" ]; then
-		echo "ERROR: $i could not be found. Please install!"
+		echo "ERROR: $i could not be found."
 	exit 1
 fi
 done
@@ -85,7 +85,7 @@ SOURCE_ROOT_MOUNTPOINT=$(lsblk -dn $ROOT_PARTITION_FILE -o MOUNTPOINT)
 
 # Obtain total size of BOOT & used size of ROOT Partitions
 SOURCE_BOOT_TOTAL_SIZE=$(df --block-size=1010k --output=size $SOURCE_BOOT_MOUNTPOINT | tail -n +2 | column -t)
-SOURCE_ROOT_USED_SIZE=$(df --block-size=1010k --output=used $SOURCE_ROOT_MOUNTPOINT | tail -n +2 | column -t)
+SOURCE_ROOT_USED_SIZE=$(du --block-size=1010k --summarize --exclude={boot,dev,proc,sys,tmp,run,mnt,media,lost+found,var/swap,var/tmp} $SOURCE_ROOT_MOUNTPOINT | awk '{print $1}')
 
 # Determine size of BOOT & ROOT Partitions on Destination Image
 DEST_BOOT_SIZE=$SOURCE_BOOT_TOTAL_SIZE
@@ -328,6 +328,9 @@ if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source ROOT files to ROOT Partition in RAW Image file."
 	exit 1
 fi
+
+#Run 'sync' to synchronize cached data to permanent storage
+sync
 
 if [ "$DBG_STEP_TIMINGS" = True ] ; then
 	# Output Step Finished message
