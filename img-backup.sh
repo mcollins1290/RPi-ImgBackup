@@ -12,7 +12,7 @@ ZIP_FILENAME=$IMAGE_FILENAME".zip"
 DEST_ROOT_BUFFER=40 # as a %
 DEST_ROOT_SET_MAX_MOUNT_COUNT=True # True or False
 DEST_ROOT_MAX_MOUNT_COUNT_VALUE=1
-ZIP_IMG_FILE=False
+ZIP_IMG_FILE=True
 DBG_STEP_TIMINGS=False
 #########################################################
 
@@ -445,14 +445,14 @@ printf "Duration: %02d:%02d:%02d\n\n" $h $m $s
 # Output Backup details
 BACKUP_DETAILS=$(ls -sh $BACKUP_DIRECTORY/$BACKUP_FILENAME)
 printf "Backup Details: $BACKUP_DETAILS\n\n"
-# Delete Prior Backups in Backup Directory (if any exist)
-BACKUPS_TO_DELETE=$(find $BACKUP_DIRECTORY/ -type 'f' | grep -v "$BACKUP_FILENAME")
+# Delete files in Backup Directory excluding current backup (if any exist)
+FILES_TO_DELETE=$(find $BACKUP_DIRECTORY/ -type 'f' | grep -v "$BACKUP_FILENAME")
 
-if [ -n "$BACKUPS_TO_DELETE" ]; then
-	printf "Deleted the following previous backups:\n$BACKUPS_TO_DELETE\n\n"
-	rm -f $BACKUPS_TO_DELETE
+if [ -n "$FILES_TO_DELETE" ]; then
+	printf "Deleted the following file(s):\n$FILES_TO_DELETE\n\n"
+	rm -f $FILES_TO_DELETE
 else
-	printf "There are no previous backups to delete.\n\n"
+	printf "There are no file(s) to delete.\n\n"
 fi
 #
 
