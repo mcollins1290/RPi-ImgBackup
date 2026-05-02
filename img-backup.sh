@@ -2,14 +2,14 @@
 set -B
 
 ####################### VARIABLES #######################
-PARTITION_TABLE_FILE="/dev/mmcblk0"
-BOOT_PARTITION_FILE="/dev/mmcblk0p1"
-ROOT_PARTITION_FILE="/dev/mmcblk0p2"
+PARTITION_TABLE_FILE="/dev/sda"
+BOOT_PARTITION_FILE="/dev/sda1"
+ROOT_PARTITION_FILE="/dev/sda2"
 TMP_DIRECTORY=/tmp/RPi-ImgBackup # No need to include / on the end
 BACKUP_DIRECTORY=/media/raid1/Backups/imgs/$HOSTNAME # No need to include / on the end
 IMAGE_FILENAME=$HOSTNAME"_"$(date +%Y-%m-%d_%H-%M-%S)".img"
 ZIP_FILENAME=$IMAGE_FILENAME".zip"
-DEST_ROOT_BUFFER=40 # as a %
+DEST_ROOT_BUFFER=30 # as a %
 DEST_ROOT_SET_MAX_MOUNT_COUNT=True # True or False
 DEST_ROOT_MAX_MOUNT_COUNT_VALUE=1
 ZIP_IMG_FILE=True
