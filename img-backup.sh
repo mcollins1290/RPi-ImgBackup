@@ -9,6 +9,10 @@ TMP_DIRECTORY=/tmp/RPi-ImgBackup # No need to include / on the end
 BACKUP_DIRECTORY=/media/raid1/Backups/imgs/$HOSTNAME # No need to include / on the end
 IMAGE_FILENAME=$HOSTNAME"_"$(date +%Y-%m-%d_%H-%M-%S)".img"
 ZIP_FILENAME=$IMAGE_FILENAME".zip"
+IMAGE_FILE="$BACKUP_DIRECTORY/$IMAGE_FILENAME"
+ZIP_FILE="$BACKUP_DIRECTORY/$ZIP_FILENAME"
+KEEP_BACKUPS=1
+SUCCESS=0
 DEST_ROOT_BUFFER=30 # as a %
 DEST_ROOT_SET_MAX_MOUNT_COUNT=True # True or False
 DEST_ROOT_MAX_MOUNT_COUNT_VALUE=1
@@ -16,8 +20,37 @@ ZIP_IMG_FILE=True
 DBG_STEP_TIMINGS=False
 #########################################################
 
+cleanup_on_failure() {
+	exit_code=$?
+	if [ "$exit_code" -eq 0 ]; then
+		return
+	fi
+
+	if [ -n "$DEST_BOOT_DIR" ] && awk -v path="$DEST_BOOT_DIR" -v path_no_slash="${DEST_BOOT_DIR%/}" '$2 == path || $2 == path_no_slash { found=1 } END { exit !found }' /proc/mounts; then
+		umount "$DEST_BOOT_DIR" >& /dev/null
+	fi
+
+	if [ -n "$DEST_ROOT_DIR" ] && awk -v path="$DEST_ROOT_DIR" -v path_no_slash="${DEST_ROOT_DIR%/}" '$2 == path || $2 == path_no_slash { found=1 } END { exit !found }' /proc/mounts; then
+		umount "$DEST_ROOT_DIR" >& /dev/null
+	fi
+
+	if [ -n "$LOOP_DEV" ] && losetup "$LOOP_DEV" >& /dev/null; then
+		losetup -d "$LOOP_DEV" >& /dev/null
+	fi
+
+	if [ "$SUCCESS" -ne 1 ] && [ -n "$IMAGE_FILE" ] && [ -f "$IMAGE_FILE" ]; then
+		rm -f "$IMAGE_FILE"
+	fi
+
+	if [ "$SUCCESS" -ne 1 ] && [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
+		rm -f "$ZIP_FILE"
+	fi
+}
+
+trap cleanup_on_failure EXIT
+
 # Check to see if script is being run as root
-if [ $(id -u) -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
 	printf "ERROR: Image Backup Script must be run as root. Try '$0'\n"
 	exit 1
 fi
@@ -26,7 +59,7 @@ fi
 apps=( "awk" "column" "cp" "df" "du" "fdisk" "grep" "losetup" "lsblk" "mount" "umount" "mkfs.ext4" "mkfs.vfat" "parted" "rsync" "sed" "sync" "tail" "truncate" "zip" "tune2fs" )
 for i in "${apps[@]}"
 do
-	if ! [ -x "$(command -v $i)" ]; then
+	if ! [ -x "$(command -v "$i")" ]; then
 		echo "ERROR: $i could not be found."
 	exit 1
 fi
@@ -34,24 +67,24 @@ done
 #
 
 # Check source PARTITION TABLE, BOOT and ROOT partitions exist
-if [ ! -e $PARTITION_TABLE_FILE ]; then
+if [ ! -e "$PARTITION_TABLE_FILE" ]; then
 	echo "ERROR: Partition table '$PARTITION_TABLE_FILE' does not exist!"
 	exit 1
 fi
-if [ ! -e $BOOT_PARTITION_FILE ]; then
+if [ ! -e "$BOOT_PARTITION_FILE" ]; then
         echo "ERROR: BOOT Partition '$BOOT_PARTITION_FILE' does not exist!"
 	exit 1
 fi
-if [ ! -e $ROOT_PARTITION_FILE ]; then
+if [ ! -e "$ROOT_PARTITION_FILE" ]; then
         echo "ERROR: ROOT Partition '$ROOT_PARTITION_FILE' does not exist!"
 	exit 1
 fi
 #
 
 # Check whether TMP directory exists and if not, create it
-if [ ! -d $TMP_DIRECTORY ]; then
-        mkdir -p $TMP_DIRECTORY
-        if [ ! -d $TMP_DIRECTORY ]; then
+if [ ! -d "$TMP_DIRECTORY" ]; then
+        mkdir -p "$TMP_DIRECTORY"
+        if [ ! -d "$TMP_DIRECTORY" ]; then
                 echo "ERROR: Unable to create Temp Directory - [$TMP_DIRECTORY]"
                 exit 1
         fi
@@ -59,16 +92,16 @@ fi
 #
 
 # Check whether Backup directory exists
-if [ ! -d $BACKUP_DIRECTORY ]; then
+if [ ! -d "$BACKUP_DIRECTORY" ]; then
 	echo "ERROR: Backup Directory [$BACKUP_DIRECTORY] does not exist."
 	exit 1
 fi
 #
 
 # Obtain Disk Identifer and Partition labels for BOOT & ROOT
-SOURCE_PTUUID=$(fdisk -l $PARTITION_TABLE_FILE | sed -n 's/Disk identifier: 0x\([^ ]*\)/\1/p')
-SOURCE_BOOT_LABEL=$(lsblk -dn $BOOT_PARTITION_FILE -o LABEL)
-SOURCE_ROOT_LABEL=$(lsblk -dn $ROOT_PARTITION_FILE -o LABEL)
+SOURCE_PTUUID=$(fdisk -l "$PARTITION_TABLE_FILE" | sed -n 's/Disk identifier: 0x\([^ ]*\)/\1/p')
+SOURCE_BOOT_LABEL=$(lsblk -dn "$BOOT_PARTITION_FILE" -o LABEL)
+SOURCE_ROOT_LABEL=$(lsblk -dn "$ROOT_PARTITION_FILE" -o LABEL)
 
 echo "      Source Disk Identifer: $SOURCE_PTUUID"
 echo "Source BOOT Partition Label: $SOURCE_BOOT_LABEL"
@@ -77,15 +110,15 @@ echo ""
 #
 
 # Obtain number of Sectors used by BOOT partition (and subtract 1 for fdisk usage later)
-SOURCE_BOOT_SECTORS=$(($(fdisk -l | grep ^$BOOT_PARTITION_FILE |  awk -F" "  '{ print $4 }')-1))
+SOURCE_BOOT_SECTORS=$(($(fdisk -l | grep "^$BOOT_PARTITION_FILE" |  awk -F" "  '{ print $4 }')-1))
 
 # Obtain Mount points for BOOT and ROOT
-SOURCE_BOOT_MOUNTPOINT=$(lsblk -dn $BOOT_PARTITION_FILE -o MOUNTPOINT)
-SOURCE_ROOT_MOUNTPOINT=$(lsblk -dn $ROOT_PARTITION_FILE -o MOUNTPOINT)
+SOURCE_BOOT_MOUNTPOINT=$(lsblk -dn "$BOOT_PARTITION_FILE" -o MOUNTPOINT)
+SOURCE_ROOT_MOUNTPOINT=$(lsblk -dn "$ROOT_PARTITION_FILE" -o MOUNTPOINT)
 
 # Obtain total size of BOOT & used size of ROOT Partitions
-SOURCE_BOOT_TOTAL_SIZE=$(df --block-size=1010k --output=size $SOURCE_BOOT_MOUNTPOINT | tail -n +2 | column -t)
-SOURCE_ROOT_USED_SIZE=$(du --block-size=1010k --summarize --exclude={boot,dev,proc,sys,tmp,run,mnt,media,lost+found,var/swap,var/tmp} $SOURCE_ROOT_MOUNTPOINT | awk '{print $1}')
+SOURCE_BOOT_TOTAL_SIZE=$(df --block-size=1010k --output=size "$SOURCE_BOOT_MOUNTPOINT" | tail -n +2 | column -t)
+SOURCE_ROOT_USED_SIZE=$(du --block-size=1010k --summarize --exclude={boot,dev,proc,sys,tmp,run,mnt,media,lost+found,var/swap,var/tmp} "$SOURCE_ROOT_MOUNTPOINT" | awk '{print $1}')
 
 # Determine size of BOOT & ROOT Partitions on Destination Image
 DEST_BOOT_SIZE=$SOURCE_BOOT_TOTAL_SIZE
@@ -110,9 +143,8 @@ fi
 
 # Stage 1: Create initial RAW image
 echo "Stage 1: Create initial RAW Image file"
-IMAGE_FILE=$BACKUP_DIRECTORY/$IMAGE_FILENAME
-truncate -s $DEST_IMAGE_SIZE"M" $IMAGE_FILE >& /dev/null
-if [ ! -f $IMAGE_FILE ]; then
+truncate -s "$DEST_IMAGE_SIZE""M" "$IMAGE_FILE" >& /dev/null
+if [ ! -f "$IMAGE_FILE" ]; then
 	echo "ERROR: Failed to create RAW Image file - [$IMAGE_FILE]."
 	exit 1
 fi
@@ -144,7 +176,7 @@ fi
 # Stage 2: Create and format Partitions in RAW image
 echo "Stage 2: Create and format Partitions in RAW Image file"
 # Create Partition Table
-parted $IMAGE_FILE mklabel msdos
+parted "$IMAGE_FILE" mklabel msdos
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to create Partition table in RAW Image file. Exit Code: $?"
 	exit 1
@@ -156,7 +188,7 @@ echo i #Change Disk Identifier Option
 echo 0x$SOURCE_PTUUID #Specify new PTUUID
 echo r #Return to Main Menu Option
 echo w #Write changes
-) | fdisk $IMAGE_FILE > /dev/null
+) | fdisk "$IMAGE_FILE" > /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to change RAW Image file Disk Identifer to: 0x"$SOURCE_PTUUID"."
 	exit 1
@@ -171,7 +203,7 @@ echo +"$SOURCE_BOOT_SECTORS" #No. of Sectors from BOOT Partition on Source
 echo t #Change Partition Type Option
 echo c #Change Partition Type to 'W95 FAT32 (LBA)'
 echo w #Write changes
-) | fdisk $IMAGE_FILE > /dev/null
+) | fdisk "$IMAGE_FILE" > /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to create "$DEST_BOOT_SIZE"MB BOOT Partition in RAW Image file."
 	exit 1
@@ -184,13 +216,13 @@ echo 2 #Partition #2
 echo   #First sector (Accept default)
 echo   #Last sector (Accept default)
 echo w #Write changes
-) | fdisk $IMAGE_FILE > /dev/null
+) | fdisk "$IMAGE_FILE" > /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to create "$DEST_ROOT_SIZE"MB ROOT Partition in RAW Image file."
 	exit 1
 fi
 # Mount RAW Image as a loop device
-LOOP_DEV=$(losetup -fP --show $IMAGE_FILE)
+LOOP_DEV=$(losetup -fP --show "$IMAGE_FILE")
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to create Loop device using RAW Image file."
 	exit 1
@@ -247,15 +279,15 @@ DEST_BOOT_DIR="$TMP_DIRECTORY/boot"
 DEST_ROOT_DIR="$TMP_DIRECTORY/"
 
 # Mount ROOT Directory
-mount "$LOOP_DEV"p2 $DEST_ROOT_DIR >& /dev/null
+mount "$LOOP_DEV"p2 "$DEST_ROOT_DIR" >& /dev/null
 if [ $? -ne 0 ]; then
         echo "ERROR: Failed to mount ROOT Directory in Image file."
         exit 1
 fi
 
 # Create BOOT Directory
-mkdir $DEST_BOOT_DIR >& /dev/null
-if [ ! -d $DEST_BOOT_DIR ]; then
+mkdir "$DEST_BOOT_DIR" >& /dev/null
+if [ ! -d "$DEST_BOOT_DIR" ]; then
         echo "ERROR: Failed to create BOOT Directory in Image file - [$DEST_BOOT_DIR]."
         exit 1
 fi
@@ -292,7 +324,7 @@ fi
 
 # Populate BOOT Partition from Source
 echo "Stage 3a: Copy Source BOOT files to BOOT Partition in RAW Image file"
-cp --recursive $SOURCE_BOOT_MOUNTPOINT/. $DEST_BOOT_DIR >& /dev/null
+cp --recursive "$SOURCE_BOOT_MOUNTPOINT/." "$DEST_BOOT_DIR" >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source BOOT files to BOOT Partition in RAW Image file."
 	exit 1
@@ -323,7 +355,7 @@ fi
 
 # Populate ROOT Partition from Source
 echo "Stage 3b: Copy Source ROOT files to ROOT Partition in RAW Image file"
-rsync -aAX --exclude={"/boot/*","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/var/swap","/var/tmp/*"} $SOURCE_ROOT_MOUNTPOINT $DEST_ROOT_DIR >& /dev/null
+rsync -aAX --exclude={"/boot/*","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/var/swap","/var/tmp/*"} "$SOURCE_ROOT_MOUNTPOINT" "$DEST_ROOT_DIR" >& /dev/null
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to copy Source ROOT files to ROOT Partition in RAW Image file."
 	exit 1
@@ -358,19 +390,19 @@ fi
 # Stage 4: Unmount BOOT & ROOT Directories and delete LOOP device
 echo "Stage 4: Cleanup following creation of .IMG file"
 # Unmount BOOT Directory
-umount $DEST_BOOT_DIR
+umount "$DEST_BOOT_DIR"
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to unmount temporary BOOT Directory."
 	exit 1
 fi
 # Unmount ROOT Directory
-umount $DEST_ROOT_DIR
+umount "$DEST_ROOT_DIR"
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to unmount temporary ROOT Directory."
 	exit 1
 fi
 # Delete loop device
-losetup -d $LOOP_DEV
+losetup -d "$LOOP_DEV"
 if [ $? -ne 0 ]; then
 	echo "ERROR: Failed to delete Loop device using RAW Image file."
 	exit 1
@@ -405,7 +437,7 @@ if [ "$ZIP_IMG_FILE" = True ] ; then
         echo "Stage 5: Create ZIP of .IMG file"
 
         # Create ZIP file of RAW Image file
-        zip -j $BACKUP_DIRECTORY/$ZIP_FILENAME $IMAGE_FILE >& /dev/null
+        zip -j "$ZIP_FILE" "$IMAGE_FILE" >& /dev/null
         if [ $? -ne 0 ]; then
 	        echo "ERROR: Failed to create ZIP file of RAW Image file."
 	        exit 1
@@ -443,18 +475,22 @@ s=$(( dur % 60 ))
 
 printf "Duration: %02d:%02d:%02d\n\n" $h $m $s
 # Output Backup details
-BACKUP_DETAILS=$(ls -sh $BACKUP_DIRECTORY/$BACKUP_FILENAME)
+BACKUP_DETAILS=$(ls -sh "$BACKUP_DIRECTORY/$BACKUP_FILENAME")
 printf "Backup Details: $BACKUP_DETAILS\n\n"
-# Delete files in Backup Directory excluding current backup (if any exist)
-FILES_TO_DELETE=$(find $BACKUP_DIRECTORY/ -type 'f' | grep -v "$BACKUP_FILENAME")
+# Delete old backup files matching this script's naming pattern
+FILES_TO_DELETE=$(find "$BACKUP_DIRECTORY" -maxdepth 1 -type f \( -name "$HOSTNAME"'_*.img' -o -name "$HOSTNAME"'_*.img.zip' \) -printf '%T@ %p\n' | sort -rn | tail -n +"$((KEEP_BACKUPS + 1))" | sed 's/^[^ ]* //')
 
 if [ -n "$FILES_TO_DELETE" ]; then
 	printf "Deleted the following file(s):\n$FILES_TO_DELETE\n\n"
-	rm -f $FILES_TO_DELETE
+	printf "%s\n" "$FILES_TO_DELETE" | while IFS= read -r file_to_delete; do
+		rm -f "$file_to_delete"
+	done
 else
 	printf "There are no file(s) to delete.\n\n"
 fi
 #
 
+SUCCESS=1
+trap - EXIT
 echo "Process completed successfully."
 exit 0
